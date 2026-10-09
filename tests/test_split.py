@@ -70,3 +70,20 @@ def test_keep_sentence_boundary_newline():
     # 标点后换行属真实断句，不合并
     out = normalize_text("……审议通过。\n根据2025年规定办理。")
     assert "\n" in out
+
+
+def test_strips_pdf_page_number_lines():
+    raw = "第一条 内容开始。\n- 1 -\n内容继续。\n第 2 页\n共 10 页\n第二条 内容乙。"
+    out = normalize_text(raw)
+    assert "- 1 -" not in out
+    assert "第 2 页" not in out
+    assert "共 10 页" not in out
+    assert "第一条" in out and "第二条" in out
+
+
+def test_does_not_strip_legitimate_numbered_content():
+    # 普通带编号的正文行（如“1.”）不应被当作页码删掉
+    raw = "第一条 申报材料如下：\n1. 营业执照复印件；\n2. 社保缴纳证明。"
+    out = normalize_text(raw)
+    assert "1. 营业执照复印件；" in out
+    assert "2. 社保缴纳证明。" in out

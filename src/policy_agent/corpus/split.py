@@ -33,6 +33,18 @@ _RE_META_LINE = re.compile(
 # 只有足够长的行才可能来自 PDF 的软换行（标题行通常较短）
 _MIN_WRAP_LEN = 12
 
+# PDF 页眉/页脚：整行只是页码的行，直接丢弃（避免混入条文原文与引用）
+_PAGE_LINE_PATTERNS = (
+    re.compile(r"^[-—–]+\s*\d{1,4}\s*[-—–]+$"),          # - 1 - / — 12 —
+    re.compile(r"^第\s*\d{1,4}\s*页\s*(?:/\s*共\s*\d+\s*页)?$"),  # 第 1 页 / 第1页/共20页
+    re.compile(r"^共\s*\d{1,4}\s*页$"),                    # 共 20 页
+)
+
+
+def _is_page_line(line: str) -> bool:
+    stripped = line.strip()
+    return bool(stripped) and any(p.match(stripped) for p in _PAGE_LINE_PATTERNS)
+
 
 def _is_cjk(ch: str) -> bool:
     return "\u4e00" <= ch <= "\u9fff"
@@ -68,6 +80,7 @@ def normalize_text(text: str) -> str:
     text = text.replace("\u3000", " ")
     text = re.sub(r"[ \t]+", " ", text)
     lines = [line.rstrip() for line in text.split("\n")]
+    lines = [line for line in lines if not _is_page_line(line)]
     lines = _join_soft_wrapped_lines(lines)
     text = "\n".join(lines)
     text = re.sub(r"\n{3,}", "\n\n", text)
