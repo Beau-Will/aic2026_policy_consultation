@@ -19,6 +19,20 @@ _RE_ISSUER = re.compile(
 )
 
 
+def iter_supported_files(root: Path) -> list[Path]:
+    """递归列出可导入的原文文件。
+
+    以 "_" 或 "." 开头的文件会被跳过，方便在语料目录里放说明/索引文件。
+    """
+    return sorted(
+        p
+        for p in root.rglob("*")
+        if p.is_file()
+        and p.suffix.lower() in SUPPORTED_SUFFIXES
+        and not p.name.startswith(("_", "."))
+    )
+
+
 def _fmt_date(m: re.Match[str]) -> str:
     return f"{int(m.group(1)):04d}-{int(m.group(2)):02d}-{int(m.group(3)):02d}"
 
@@ -136,6 +150,7 @@ def _slugify(name: str) -> str:
 def build_document(
     path: Path,
     *,
+    doc_id: str | None = None,
     title: str | None = None,
     issuer: str | None = None,
     doc_number: str | None = None,
@@ -152,8 +167,12 @@ def build_document(
 
     guessed = guess_metadata(text)
     content_hash = sha256_text(text)
-    # doc_id 由文件名派生：同一份文件重新导入会覆盖旧版本（便于政策更新）。
-    doc_id = _slugify(path.stem)
+    # doc_id 由“文件名 + 文件路径”派生：
+    #   - 同一路径重新导入 -> 同一个 doc_id，覆盖旧版本（便于政策更新）；
+    #   - 不同目录下同名文件（如两份“通知.pdf”）-> 不同 doc_id，不会互相覆盖。
+    if doc_id is None:
+        resolved = str(path.resolve()).replace("\\", "/").lower()
+        doc_id = f"{_slugify(path.stem)}-{sha256_text(resolved)[:8]}"
 
     articles = split_articles(text)
     for index, article in enumerate(articles):

@@ -32,7 +32,7 @@ def _print_json(payload: Any) -> None:
 
 # --------------------------------------------------------------------- import
 def cmd_import(args: argparse.Namespace) -> int:
-    from .corpus.importer import SUPPORTED_SUFFIXES, build_document
+    from .corpus.importer import build_document
     from .corpus.store import get_store
 
     store = get_store()
@@ -41,16 +41,19 @@ def cmd_import(args: argparse.Namespace) -> int:
     for raw in args.paths:
         path = Path(raw)
         if path.is_dir():
-            files = sorted(
-                p for p in path.rglob("*") if p.is_file() and p.suffix.lower() in SUPPORTED_SUFFIXES
-            )
+            from .corpus.importer import iter_supported_files
+
+            files = iter_supported_files(path)
         else:
             files = [path]
         for file in files:
-            title = args.title if (args.title and len(files) == 1) else None
+            single = len(files) == 1
+            title = args.title if (args.title and single) else None
+            doc_id = args.doc_id if (args.doc_id and single) else None
             try:
                 doc = build_document(
                     file,
+                    doc_id=doc_id,
                     title=title,
                     issuer=args.issuer,
                     doc_number=args.doc_number,
@@ -62,10 +65,12 @@ def cmd_import(args: argparse.Namespace) -> int:
             except Exception as exc:  # noqa: BLE001 - CLI 需给出逐文件错误
                 print(f"[跳过] {file}: {exc}", file=sys.stderr)
                 continue
+            existed = store.has_document(doc.doc_id)
             count = store.add_document(doc)
             total_docs += 1
             total_articles += count
-            print(f"[导入] {file} -> doc_id={doc.doc_id} 条文={count} 标题={doc.title}")
+            action = "更新" if existed else "新增"
+            print(f"[{action}] {file} -> doc_id={doc.doc_id} 条文={count} 标题={doc.title}")
     print(f"完成：{total_docs} 份文档，{total_articles} 条条文。库统计={store.stats()}")
     return 0
 
@@ -240,6 +245,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("import", help="导入权威原文（md/txt/html/pdf/docx，支持目录）")
     p.add_argument("paths", nargs="+")
+    p.add_argument("--doc-id", help="显式指定 doc_id（单文件时生效；重复导入同名 doc_id 会覆盖）")
     p.add_argument("--title")
     p.add_argument("--issuer")
     p.add_argument("--doc-number")

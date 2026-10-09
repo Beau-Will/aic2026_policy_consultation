@@ -59,6 +59,94 @@ policy-agent brief "小微企业如何申报创业补贴？" --out brief.md --js
 
 > 说明：`wit-framework` **不在 PyPI**，两个 wheel 已随仓库放在 `vendor/wheels/`。
 
+## 语料放哪里、怎么组织
+
+### 放这里
+
+**默认目录：`data/docs/`**（完整路径 `D:\apps\vscode_project\wt\data\docs\`）
+
+```powershell
+# 建目录（已存在会自动忽略）
+New-Item -ItemType Directory -Force -Path .\data\docs | Out-Null
+
+# 把法律法规/政策原文拷进去（这里只是示例）
+Copy-Item "D:\我的政策库\*" -Destination .\data\docs\ -Recurse
+
+# 导入（传目录即递归扫描所有支持的文件）
+.\.venv\Scripts\policy-agent.exe import .\data\docs
+```
+
+`data/` 已在 `.gitignore` 中，**原文不会进 git 仓库**（体积大、且未必可公开分发），只保存在你本地。
+
+### 支持的文件类型
+
+`.md` / `.markdown` / `.txt` / `.html` / `.htm` / `.pdf` / `.docx`
+
+> 扫描是**递归**的：子目录里的文件都会被导入，放心按层级建目录。
+> 以 _ 或 . 开头的文件会被跳过（方便在语料目录里放说明/索引文件，而不会被当成政策原文导入）。
+
+### 建议的目录结构
+
+不强制，但按"层级 / 年份 / 类型"分开，后续好维护、也好替换更新：
+
+```text
+data/docs/
+├── 国家级/
+│   ├── 法律/          中华人民共和国中小企业促进法.pdf
+│   ├── 行政法规/      优化营商环境条例.docx
+│   └── 部门规章/      财政部关于印发…的通知.pdf
+├── 省级/
+│   └── XX省/           XX省创业补贴实施办法.md
+└── 市级/
+    └── XX市/           X人社发〔2024〕7号 创业补贴申报通知.html
+```
+
+### 文件名建议（重要）
+
+导入时 `doc_id` 由**文件名 + 文件路径**生成，所以：
+
+- ✅ **同一路径重新导入会覆盖旧版本**——政策更新时，直接用新文件覆盖同名文件再导一次即可（命令行会显示 `[更新]`）。
+- ✅ **不同目录下的同名文件不会互相覆盖**（如 `2024/通知.pdf` 与 `2025/通知.pdf` 是两条）。
+- 💡 但仍建议用**能分辨内容**的文件名（如带上发文字号：`X人社发〔2024〕7号-创业补贴申报通知.pdf`），
+  这样检索结果和引用里的标题更容易看懂。
+- 💡 需要完全自定义编号时，单文件导入可加 `--doc-id`：
+  ```powershell
+  policy-agent import .\data\docs\某文件.pdf --doc-id 中小企业促进法-2024
+  ```
+
+### 元数据（可选，但建议）
+
+发文字号、发文机关、发布日期一般会**自动猜测**。猜不准时可在导入时显式指定（单文件）：
+
+```powershell
+policy-agent import .\data\docs\某通知.pdf `
+  --title "XX市创业补贴申报通知" `
+  --issuer "XX市人力资源和社会保障局" `
+  --doc-number "X人社发〔2024〕7号" `
+  --publish-date 2024-03-05 `
+  --source-url "https://example.gov.cn/xxx"
+```
+
+> 这些元数据会原样出现在最终报告"条文依据"里，是**可回溯**的关键，建议正式语料都补齐。
+
+### 导入后自检
+
+```powershell
+policy-agent stats                              # 文档数 / 条文数
+policy-agent search "创业补贴 申报 材料"          # 能否检索到目标条文
+```
+
+检索不到就换关键词，或确认原文里确实有这些字——**检索不到就不会产出结论**（这是"不编造"的设计）。
+
+### Docker 方式
+
+`docker-compose.yml` 已把 `./data` 挂到容器 `/app/data`，所以文件同样放 `data/docs/` 即可：
+
+```powershell
+docker compose run --rm policy-agent import /app/data/docs
+docker compose run --rm policy-agent search "创业补贴 申报"
+```
+
 ## 接入梧桐平台（ACPs Partner）
 
 ### 先搞懂两个“地址”变量

@@ -6,7 +6,12 @@ import pathlib
 
 import pytest
 
-from policy_agent.corpus.importer import build_document, guess_metadata, load_text
+from policy_agent.corpus.importer import (
+    build_document,
+    guess_metadata,
+    iter_supported_files,
+    load_text,
+)
 from policy_agent.corpus.store import CorpusStore, normalize_for_match
 
 
@@ -124,3 +129,61 @@ def test_documents_scope(populated_store):
 
 def test_normalize_for_match_ignores_punctuation_and_space():
     assert normalize_for_match("申报时间： 4月1日。") == normalize_for_match("申报时间4月1日")
+
+
+def test_same_stem_in_different_dirs_do_not_collide(tmp_path):
+    store = CorpusStore(tmp_path / "db.sqlite")
+    a = tmp_path / "2024" / "通知.md"
+    b = tmp_path / "2025" / "通知.md"
+    a.parent.mkdir(parents=True)
+    b.parent.mkdir(parents=True)
+    a.write_text("第一条 2024年的内容。", encoding="utf-8")
+    b.write_text("第一条 2025年的内容。", encoding="utf-8")
+
+    doc_a = build_document(a)
+    doc_b = build_document(b)
+    assert doc_a.doc_id != doc_b.doc_id
+    assert doc_a.doc_id.startswith("通知-")
+
+    store.add_document(doc_a)
+    store.add_document(doc_b)
+    assert store.stats()["documents"] == 2
+    store.close()
+
+
+def test_reimport_same_path_is_replaced(tmp_path):
+    store = CorpusStore(tmp_path / "db.sqlite")
+    path = tmp_path / "办法.md"
+    path.write_text("第一条 旧内容。", encoding="utf-8")
+    first = build_document(path)
+    store.add_document(first)
+
+    path.write_text("第一条 新内容。", encoding="utf-8")
+    second = build_document(path)
+    assert second.doc_id == first.doc_id  # 同一路径 -> 同一 doc_id
+    assert store.has_document(second.doc_id) is True
+    store.add_document(second)
+    assert store.stats() == {"documents": 1, "articles": 1}
+    store.close()
+
+
+def test_explicit_doc_id_override(tmp_path):
+    path = tmp_path / "任意名.md"
+    path.write_text("第一条 内容。", encoding="utf-8")
+    doc = build_document(path, doc_id="my-policy-2024")
+    assert doc.doc_id == "my-policy-2024"
+    assert doc.articles[0].article_id == "my-policy-2024#0000"
+
+
+def test_iter_supported_files_skips_notes_and_unsupported(tmp_path):
+    (tmp_path / "a.md").write_text("第一条 x。", encoding="utf-8")
+    (tmp_path / "b.pdf").write_bytes(b"%PDF-1.4")
+    (tmp_path / "_notes.txt").write_text("说明", encoding="utf-8")
+    (tmp_path / ".hidden.docx").write_bytes(b"x")
+    (tmp_path / "c.csv").write_text("a,b", encoding="utf-8")
+    sub = tmp_path / "2024"
+    sub.mkdir()
+    (sub / "d.docx").write_bytes(b"x")
+
+    found = {p.name for p in iter_supported_files(tmp_path)}
+    assert found == {"a.md", "b.pdf", "d.docx"}

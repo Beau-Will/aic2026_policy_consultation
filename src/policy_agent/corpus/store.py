@@ -210,6 +210,13 @@ class CorpusStore:
             self._conn.commit()
         return len(doc.articles)
 
+    def has_document(self, doc_id: str) -> bool:
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT 1 FROM documents WHERE doc_id = ? LIMIT 1", (doc_id,)
+            ).fetchone()
+        return row is not None
+
     # ---------------------------------------------------------------- 查询
     def search(self, query: str, limit: int = 5) -> list[dict[str, Any]]:
         tokens = query_tokens(query)
