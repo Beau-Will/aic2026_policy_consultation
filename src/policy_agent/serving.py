@@ -8,6 +8,8 @@
 from __future__ import annotations
 
 import asyncio
+import ipaddress
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -25,6 +27,20 @@ from wit import (
 from .agent import build_agent
 from .config import Settings
 from .provider import build_provider
+
+PUBLIC_ENDPOINT_HELP = """\
+POLICY_PUBLIC_ENDPOINT 是“平台（梧桐）用来访问你这个智能体”的对外地址，必须：
+  1) 以 https:// 开头（严格互操作模式强制）；
+  2) 以 /acps/aip/v1 结尾；
+  3) 主机名/IP 能被平台侧访问到（公网可达，或平台内网可达）。
+
+示例：
+  公网域名      : https://agent.example.com/acps/aip/v1
+  云服务器公网IP : https://203.0.113.10/acps/aip/v1
+  内网穿透(隧道) : https://<隧道分配的主机名>/acps/aip/v1
+
+POLICY_CERT_DNS 可以留空：会自动取上面地址的主机名写入证书 SAN。
+（若地址用的是 IP，会自动写入证书的 IP SAN。）"""
 
 
 @dataclass
@@ -46,14 +62,41 @@ class AgentRuntimeHandle:
             pass
 
 
-def _derive_dns(settings: Settings) -> tuple[str, ...]:
-    if settings.cert_dns:
-        return tuple(settings.cert_dns)
-    if settings.public_endpoint:
+def _split_cert_hosts(hosts: list[str]) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """把主机名与 IP 分开，分别写入证书的 DNS SAN 与 IP SAN。"""
+    dns: list[str] = []
+    ips: list[str] = []
+    for host in hosts:
+        host = (host or "").strip()
+        if not host:
+            continue
+        try:
+            ipaddress.ip_address(host)
+        except ValueError:
+            dns.append(host)
+        else:
+            ips.append(host)
+    return tuple(dns), tuple(ips)
+
+
+def _cert_hosts(settings: Settings) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    hosts: list[str] = list(settings.cert_dns)
+    if not hosts and settings.public_endpoint:
         host = urlparse(settings.public_endpoint).hostname
         if host:
-            return (host,)
-    return ()
+            hosts.append(host)
+    return _split_cert_hosts(hosts)
+
+
+def require_public_endpoint(settings: Settings) -> None:
+    """注册/上线前校验对外地址，给出人类可读的说明而不是晦涩报错。"""
+    endpoint = (settings.public_endpoint or "").strip()
+    if not endpoint:
+        raise RuntimeError("缺少 POLICY_PUBLIC_ENDPOINT。\n" + PUBLIC_ENDPOINT_HELP)
+    if not endpoint.startswith("https://"):
+        raise RuntimeError("POLICY_PUBLIC_ENDPOINT 必须以 https:// 开头。\n" + PUBLIC_ENDPOINT_HELP)
+    if not urlparse(endpoint).hostname:
+        raise RuntimeError("POLICY_PUBLIC_ENDPOINT 解析不出主机名。\n" + PUBLIC_ENDPOINT_HELP)
 
 
 def build_acps_config(settings: Settings) -> AcpsConfig:
@@ -62,8 +105,10 @@ def build_acps_config(settings: Settings) -> AcpsConfig:
         organization=settings.organization,
         country_code=settings.country_code,
     )
+    dns, ips = _cert_hosts(settings)
     certificate = AgentCertificateRequest(
-        dns=_derive_dns(settings),
+        dns=dns,
+        ip=ips,
         requested_validity=settings.cert_validity_days,
     )
     if settings.acps_profile.lower() in ("ioa", "ioa_pub", "ioapub"):
@@ -95,6 +140,12 @@ def build_runtime(settings: Settings | None = None, *, required_provider: bool =
 def save_acs_draft(settings: Settings | None = None, path: str | Path | None = None) -> Path:
     """生成并保存 ACS 草稿（本地，无需联网、无需 API Key）。"""
     settings = settings or Settings.from_env()
+    if not (settings.public_endpoint or "").strip():
+        print(
+            "[提示] 尚未设置 POLICY_PUBLIC_ENDPOINT，ACS 草稿里不会包含对外端点。\n"
+            + PUBLIC_ENDPOINT_HELP,
+            file=sys.stderr,
+        )
     settings.agent_workspace().mkdir(parents=True, exist_ok=True)
     provider = build_provider(settings, required=False)
     agent = build_agent(settings, provider)
@@ -110,6 +161,7 @@ def validate_agent(settings: Settings | None = None) -> dict[str, Any]:
     agent = build_agent(settings, provider)
     acps = build_acps_config(settings)
     compiled = agent.compile(workspace=settings.agent_workspace(), acps=acps)
+    dns, ips = _cert_hosts(settings)
     return {
         "agent_id": compiled.agent_id,
         "valid": not compiled.diagnostics,
@@ -117,11 +169,15 @@ def validate_agent(settings: Settings | None = None) -> dict[str, Any]:
         "skills": [p.capability_id for p in compiled.capability_matrix.projections],
         "tools": [t.name for t in compiled.tools],
         "protocols": [p.id for p in compiled.protocols],
+        "public_endpoint": settings.public_endpoint,
+        "certificate_san": {"dns": list(dns), "ip": list(ips)},
     }
 
 
 async def register(settings: Settings | None = None) -> dict[str, Any]:
     """推进注册状态机（停在 waiting_for_review 属正常）。"""
+    settings = settings or Settings.from_env()
+    require_public_endpoint(settings)
     handle = build_runtime(settings, required_provider=False)
     try:
         draft_path = handle.runtime.save_acs()
@@ -137,6 +193,8 @@ async def register(settings: Settings | None = None) -> dict[str, Any]:
 
 async def serve(settings: Settings | None = None, *, block: bool = True) -> dict[str, Any]:
     """注册到位后启动 Direct Partner listener（mTLS + AMP）。"""
+    settings = settings or Settings.from_env()
+    require_public_endpoint(settings)
     handle = build_runtime(settings, required_provider=True)
     settings = handle.settings
     try:

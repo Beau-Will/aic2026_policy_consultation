@@ -29,17 +29,114 @@ policy-agent stats
 policy-agent search "关键词 关键词"            # 确认能检索到目标条文
 ```
 
-## 3. 配置模型与接入参数
+## 3. 配置 `.env`（本节是重点）
 
-复制 `.env.example` 为 `.env` 并填写：
+复制模板：`Copy-Item .env.example .env`，然后填这几项：
 
-- `OPENAI_API_KEY`：DeepSeek API Key（模型走 OpenAI 兼容协议）。
-- `ACPS_USERNAME` / `ACPS_PASSWORD`：梧桐平台注册账号。
-- `POLICY_PUBLIC_ENDPOINT`：**平台可达的 HTTPS 地址**，形如 `https://your-host/acps/aip/v1`。
-- `POLICY_CERT_DNS`：上面的主机名（留空会自动从 endpoint 推导）。
+| 变量 | 是否必填 | 说明 |
+| --- | --- | --- |
+| `OPENAI_API_KEY` | 必填 | DeepSeek API Key（`brief` / `serve` 会真正调用模型） |
+| `ACPS_USERNAME` / `ACPS_PASSWORD` | 必填 | 梧桐平台账号 |
+| `POLICY_PUBLIC_ENDPOINT` | 必填 | **平台用来找到并调用你的地址**（见下） |
+| `POLICY_CERT_DNS` | 一般留空 | 通常会自动推导；只有特殊需要用别的名字时才填 |
+| `POLICY_BIND_HOST` / `POLICY_BIND_PORT` | 不用改 | 你**本机**监听的地址/端口（`0.0.0.0` / `8443`） |
 
-> ⚠️ `POLICY_BIND_HOST/PORT` 只是本机监听地址；平台要访问的是 `POLICY_PUBLIC_ENDPOINT`。
-> 两者可以不同（经 DNS / 反向代理 / NAT 映射），但证书 SAN 必须覆盖 public endpoint 的主机名。
+### 3.1 一句话理解这两个变量
+
+- **`POLICY_PUBLIC_ENDPOINT` = 你智能体在互联网上的“门牌号”**。平台就是拿这个地址来调用你的。
+- **`POLICY_CERT_DNS` = 这个门牌号的主机名**，会被写进你的 mTLS 证书，用来向平台证明“这个地址真的是你”。
+
+> 关键点：**先有地址，才有证书**。所以你要先想清楚“平台能从哪个地址访问到我”，再谈填值。
+
+**为什么要证书？** 平台和你的智能体之间是**双向 TLS（mTLS）**：平台验证你的证书，
+你也验证平台的证书。证书由平台 CA 依据你填的 `POLICY_CERT_DNS` 签发，
+所以**证书里的名字必须和公开地址的主机名一致**，否则平台连上你也会因证书不匹配而失败。
+
+### 3.2 `POLICY_PUBLIC_ENDPOINT` 的固定格式
+
+```
+https://<主机名或IP>/acps/aip/v1
+```
+
+三条硬性要求：
+
+1. 必须 `https://` 开头（严格互操作模式强制）；
+2. 结尾必须 `/acps/aip/v1`；
+3. **主机名/IP 必须能被平台侧访问到**（公网可达，或在平台内网可达）。
+
+### 3.3 按你的实际情况填（三选一）
+
+#### 情况 A：你有云服务器公网 IP / 域名（最标准）
+
+把智能体跑在那台机器上（或让那台机器转发到你的电脑），并放行端口。
+
+```ini
+POLICY_BIND_HOST=0.0.0.0
+POLICY_BIND_PORT=8443
+POLICY_PUBLIC_ENDPOINT=https://agent.example.com/acps/aip/v1
+POLICY_CERT_DNS=                      # 留空即可，会自动用 agent.example.com
+```
+
+> 云服务器安全组 / 防火墙要放行对应端口；URL 里带端口也可以，
+> 例如 `https://203.0.113.10:8443/acps/aip/v1`。
+
+#### 情况 B：你只有自己的电脑（家里 / 公司，没有公网 IP）→ 用内网穿透
+
+用**隧道工具**把公网入口转发到你本机的 `8443`。隧道会给你一个公网主机名，把它填进去：
+
+```ini
+POLICY_BIND_HOST=0.0.0.0
+POLICY_BIND_PORT=8443
+POLICY_PUBLIC_ENDPOINT=https://<隧道分配的主机名>:<隧道端口>/acps/aip/v1
+POLICY_CERT_DNS=                      # 留空即可
+```
+
+⚠️ **隧道必须是 TCP 透传（L4），不能是会终止 TLS 的 HTTP 反向代理**。
+因为 mTLS 的双向认证必须由你自己的 listener 端到端完成。
+
+| 工具 | 正确用法 | 说明 |
+| --- | --- | --- |
+| ngrok | `ngrok tcp 8443` | 不要用 `ngrok http`（会终止 TLS） |
+| frp | `[proxy] type = "tcp"` | 标准 L4 透传 |
+| cpolar | 选择 **TCP 隧道** | 免费版可能限端口/时长 |
+| 花生壳 | TCP 映射 | — |
+| Cloudflare Tunnel | 默认 HTTP 层，**不适用**；需要 Spectrum（付费） | — |
+
+#### 情况 C：赛方 / 单位提供了机器或接入环境
+
+**最省事，优先问主办方**：有没有指定服务器、域名、端口，
+以及平台能不能访问你的网络。拿到主机名后按情况 A 填即可。
+
+> 如果暂时拿不到可达地址：没关系。你仍然可以完整本地开发和自测
+> （`import` / `search` / `brief` / `validate` / `acs` 都不需要 endpoint），
+> 等有了地址再执行 `register`。
+
+### 3.4 `POLICY_CERT_DNS` 到底填什么
+
+**一句话：留空就行。** 程序会自动从 `POLICY_PUBLIC_ENDPOINT` 取主机名。
+
+| 你的 PUBLIC_ENDPOINT | 自动得到的证书 SAN | 要不要手动填 |
+| --- | --- | --- |
+| `https://agent.example.com/acps/aip/v1` | `agent.example.com`（DNS SAN） | 留空 |
+| `https://203.0.113.10/acps/aip/v1` | `203.0.113.10`（IP SAN） | 留空 |
+
+只有这些情况才手动填：**你想用与 endpoint 不同的主机名接入**（多个用英文逗号分隔）。
+填的是**纯主机名**，不要带 `https://`、不要带端口和路径。
+
+### 3.5 怎么自测“平台能不能访问到我”
+
+1. 先启动：`policy-agent serve`（保持窗口开着）。
+2. 从**另一台不在你局域网的机器**（手机热点、朋友电脑）执行：
+
+```powershell
+Test-NetConnection <你的主机名> -Port <端口>
+# 或
+curl.exe -vk https://<你的主机名>:<端口>/
+```
+
+- 能连上 TCP（`TcpTestSucceeded: True`）说明网络通。
+- `curl` 报证书/TLS 相关错误 **是正常的**——因为你没有平台的客户端证书，
+  双向认证被拒绝恰恰说明“TLS 端口通了、双向认证生效了”。
 
 ## 4. 本地校验并生成 ACS
 
@@ -89,8 +186,11 @@ docker compose up -d policy-agent
 
 | 现象 | 原因 / 处理 |
 | --- | --- |
-| `缺少 OPENAI_API_KEY` | 未配置 `.env`；`brief`/`serve` 需要真实 Key |
-| `waiting_for_review` | 等待平台管理员审核，通过后重跑 `register` |
-| 证书 SAN 校验失败 | `POLICY_CERT_DNS` 未覆盖 public endpoint 主机名 |
-| 平台调用超时 | `POLICY_PUBLIC_ENDPOINT` 不可达（DNS/端口/反代/NAT 未打通） |
+| 提示“缺少 POLICY_PUBLIC_ENDPOINT” | `.env` 里还没填对外地址，见 §3.3 |
+| 提示“必须以 https:// 开头” | 写成了 `http://`，严格模式不接受 |
+| 提示“解析不出主机名” | 写成了 `https:///acps/aip/v1`，缺主机名 |
+| `缺少 OPENAI_API_KEY` | `brief`/`serve` 需要真实 DeepSeek Key |
+| `waiting_for_review` | 等平台管理员审核，通过后重跑 `register` |
+| 证书 SAN 校验失败 | `POLICY_CERT_DNS` 与 public endpoint 主机名不一致 |
+| 平台调用超时 | 地址不可达：DNS/端口/防火墙/隧道未打通（或用了终止 TLS 的 HTTP 反代） |
 | 检索不到目标条文 | 语料未导入或关键词不匹配；换关键词或补录原文 |

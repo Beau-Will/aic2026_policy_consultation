@@ -61,13 +61,41 @@ policy-agent brief "小微企业如何申报创业补贴？" --out brief.md --js
 
 ## 接入梧桐平台（ACPs Partner）
 
+### 先搞懂两个“地址”变量
+
+- **`POLICY_PUBLIC_ENDPOINT` = 你智能体在互联网上的“门牌号”**：平台用它来找到并调用你。
+  格式固定为 `https://<主机名或IP>/acps/aip/v1`，且必须**平台可达**。
+- **`POLICY_CERT_DNS` = 上面那个门牌号的主机名**，会写进你的 mTLS 证书。
+  **通常留空即可**（程序自动从 endpoint 推导；IP 会自动写成 IP SAN）。
+
+对照一下：`POLICY_BIND_HOST/PORT` 是**你本机监听**的地址（一般 `0.0.0.0`/`8443`，不用改），
+而 `POLICY_PUBLIC_ENDPOINT` 是**给平台看的对外地址**——两者可以不同（靠 DNS/端口映射/隧道对应起来）。
+
+### 三种填法（按你的情况选一个）
+
+| 你的情况 | 怎么填 | 例子 |
+| --- | --- | --- |
+| 有云服务器公网 IP / 域名 | 直接把域名或 IP 写进去 | `POLICY_PUBLIC_ENDPOINT=https://agent.example.com/acps/aip/v1` |
+| 只有自己的电脑（无公网 IP） | 用**内网穿透(隧道)**，填隧道给的公网主机名 | `https://<隧道主机名>:<端口>/acps/aip/v1` |
+| 赛方 / 单位给了机器 | **先问主办方**要主机名/端口，再照上面填 | `https://<赛方给的主机名>/acps/aip/v1` |
+
+> ⚠️ 用隧道时必须是 **TCP 透传（L4）**，不能用会终止 TLS 的 HTTP 反向代理——
+> mTLS 的双向认证要由你自己的 listener 端到端完成（如 `ngrok tcp 8443`、frp `type=tcp`）。
+>
+> 暂时没地址也没关系：`import` / `search` / `brief` / `validate` / `acs` 都不需要它，
+> 可以先本地把一切跑通，拿到地址后再 `register`。
+
+详细说明见 [docs/registration.md](docs/registration.md)。
+
+### 执行
+
 ```powershell
-$env:POLICY_PUBLIC_ENDPOINT = "https://<你的公网地址>/acps/aip/v1"   # 平台可达的 HTTPS
-$env:POLICY_CERT_DNS        = "<你的公网主机名>"
+$env:POLICY_PUBLIC_ENDPOINT = "https://agent.example.com/acps/aip/v1"   # 平台可达的 HTTPS
+$env:POLICY_CERT_DNS        = ""                                        # 一般留空
 $env:ACPS_USERNAME          = "<平台账号>"
 $env:ACPS_PASSWORD          = "<平台密码>"
 
-policy-agent validate   # 本地校验编译与能力投影
+policy-agent validate   # 本地校验编译与能力投影（不需要 endpoint）
 policy-agent acs        # 查看/导出 ACS 草稿
 policy-agent register   # 推进注册；首次通常停在 waiting_for_review
 policy-agent serve      # 审核通过后启动 Direct Partner listener（mTLS + AMP）
@@ -75,9 +103,6 @@ policy-agent serve      # 审核通过后启动 Direct Partner listener（mTLS +
 
 接入流程（由 wit 托管）：登录 → 提交 ACS → 平台审核 → 取得 **AIC** → 签发 **mTLS 证书** → 启动 listener。
 首次 `register` 返回 `waiting_for_review` 属正常，等平台管理员审核通过后重跑即可。
-
-> **`public_endpoint` 必须平台可达，且证书 SAN 覆盖其主机名。**
-> `POLICY_BIND_HOST/PORT` 只是本地 bind；公网地址通过 DNS/反向代理/NAT 映射过去。
 
 ## Docker
 
