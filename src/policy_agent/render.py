@@ -7,12 +7,12 @@ from .schema import ExecutionBrief
 
 def _cite_ref(citation, index: int) -> str:
     parts: list[str] = []
+    if citation.chapter_path:
+        parts.append(citation.chapter_path)
     if citation.article_no:
         parts.append(citation.article_no)
     elif citation.heading:
         parts.append(citation.heading)
-    if citation.chapter_path:
-        parts.append(citation.chapter_path)
     label = " ".join(parts) if parts else citation.citation_id
     return f"[{index}] {citation.doc_title}（{label}）"
 

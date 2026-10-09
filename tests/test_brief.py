@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from policy_agent.capabilities import assemble_brief
 from policy_agent.render import render_markdown
-from policy_agent.schema import BriefDraft, EvidenceClaim, TimelineNode
+from policy_agent.capabilities import _parse_timeline_item
+from policy_agent.schema import BriefDraft, EvidenceClaim
 
 SEVEN_SECTIONS = ["政策适用对象", "通俗解释", "需完成的事项", "时间节点", "材料要求", "风险提示", "条文依据"]
 
@@ -14,7 +15,7 @@ def _draft() -> BriefDraft:
         applicable_subjects=["在本市依法登记注册、正常经营满6个月的小微企业"],
         plain_explanation="符合条件的小微企业可申请创业补贴。",
         action_items=["准备营业执照复印件", "开具社保缴纳证明"],
-        timeline=[TimelineNode(label="申报期", date="每年4月1日-4月30日")],
+        timeline=["申报期 | 每年4月1日-4月30日 | 逾期不受理"],
         required_materials=["营业执照复印件", "近6个月社保缴纳证明"],
         risk_notes=["逾期不再受理"],
     )
@@ -78,3 +79,17 @@ def test_render_marks_ungrounded(populated_store):
     md = render_markdown(brief)
     assert "未找到可作为依据的权威原文" in md
     assert "无可回溯条文依据" in md
+
+
+def test_parse_timeline_item_formats():
+    node = _parse_timeline_item("申报期 | 2024-04-01 至 2024-04-30 | 逾期不受理")
+    assert node.label == "申报期"
+    assert node.date == "2024-04-01 至 2024-04-30"
+    assert node.description == "逾期不受理"
+
+    node2 = _parse_timeline_item("受理后20个工作日内办结")
+    assert node2.label == "受理后20个工作日内办结"
+
+    from policy_agent.schema import TimelineNode
+    node3 = _parse_timeline_item(TimelineNode(label="公示期", date="5个工作日"))
+    assert node3.label == "公示期"

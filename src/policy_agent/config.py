@@ -17,6 +17,44 @@ DEFAULT_BASE_URL = "https://api.deepseek.com"
 DEFAULT_MODEL = "deepseek-chat"
 
 
+_DOTENV_LOADED = False
+
+
+def load_dotenv(path: str | Path | None = None) -> None:
+    """加载仓库根目录的 `.env`（不覆盖已存在的真实环境变量）。
+
+    只做最简解析：KEY=VALUE、忽略注释与空行、支持去引号与 ``export`` 前缀。
+    真实环境变量优先级更高（Docker / CI 注入的不受影响）。
+    """
+    global _DOTENV_LOADED
+    if _DOTENV_LOADED:
+        return
+    _DOTENV_LOADED = True
+
+    env_path = Path(path) if path is not None else Path(".env")
+    if not env_path.is_file():
+        return
+    try:
+        raw_text = env_path.read_text(encoding="utf-8")
+    except OSError:
+        return
+    for raw in raw_text.splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("export "):
+            line = line[len("export ") :].strip()
+        key, sep, value = line.partition("=")
+        if not sep:
+            continue
+        key = key.strip()
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+            value = value[1:-1]
+        if key and key not in os.environ:
+            os.environ[key] = value
+
+
 def _env(name: str, default: str | None = None) -> str | None:
     value = os.environ.get(name)
     if value is None:
@@ -70,6 +108,7 @@ class Settings:
 
     @classmethod
     def from_env(cls) -> "Settings":
+        load_dotenv()
         return cls(
             agent_id=_env("POLICY_AGENT_ID", DEFAULT_AGENT_ID) or DEFAULT_AGENT_ID,
             agent_display_name=_env("POLICY_AGENT_DISPLAY_NAME", "官方政策执行解读智能体")

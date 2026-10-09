@@ -202,3 +202,23 @@ def test_store_reset_clears_everything(tmp_path):
     store.add_document(build_document(path))
     assert store.stats()["documents"] == 1
     store.close()
+
+
+def test_effective_date_only_from_explicit_clause():
+    # 有明确“自…起施行” -> 采信
+    meta = guess_metadata("本条例自2024年5月1日起施行。")
+    assert meta["effective_date"] == "2024-05-01"
+
+    # 只出现普通日期 -> 不得猜测施行日期
+    meta2 = guess_metadata("本条例于2024年7月30日经会议审议通过，另有说明见附件。")
+    assert meta2["effective_date"] is None
+
+
+def test_doc_number_from_state_council_order():
+    meta = guess_metadata("中华人民共和国国务院令第775号\n《碳排放权交易管理暂行条例》已经通过。")
+    assert meta["doc_number"] == "中华人民共和国国务院令第775号"
+
+
+def test_doc_number_prefers_bracket_form():
+    meta = guess_metadata("X人社发〔2024〕7号\n关于开展申报工作的通知")
+    assert meta["doc_number"] == "X人社发〔2024〕7号"

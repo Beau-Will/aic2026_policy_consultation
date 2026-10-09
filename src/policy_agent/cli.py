@@ -44,9 +44,22 @@ def cmd_import(args: argparse.Namespace) -> int:
     for raw in args.paths:
         path = Path(raw)
         if path.is_dir():
-            from .corpus.importer import iter_supported_files
+            from .corpus.importer import UNSUPPORTED_DOC_SUFFIXES, iter_supported_files
 
             files = iter_supported_files(path)
+            skipped = sorted(
+                p
+                for p in path.rglob("*")
+                if p.is_file()
+                and p.suffix.lower() in UNSUPPORTED_DOC_SUFFIXES
+                and not p.name.startswith(("_", "."))
+            )
+            for item in skipped:
+                print(
+                    f"[跳过] {item}：{item.suffix} 暂不支持，"
+                    f"请先另存为 .docx（或导出为 PDF）后再导入。",
+                    file=sys.stderr,
+                )
         else:
             files = [path]
         for file in files:
@@ -299,7 +312,18 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     _apply_db_override(getattr(args, "db", None))
-    return int(args.func(args))
+    try:
+        return int(args.func(args))
+    except KeyboardInterrupt:
+        print("\n已中断。", file=sys.stderr)
+        return 130
+    except RuntimeError as exc:
+        # 配置类错误（缺少 API Key / 未设置对外端点等）已带人类可读说明
+        print(f"\n[错误] {exc}\n", file=sys.stderr)
+        return 2
+    except Exception as exc:  # noqa: BLE001
+        print(f"\n[错误] {type(exc).__name__}: {exc}\n", file=sys.stderr)
+        return 1
 
 
 if __name__ == "__main__":

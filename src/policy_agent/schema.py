@@ -49,8 +49,13 @@ class BriefDraft(BaseModel):
     )
     plain_explanation: str = Field(description="通俗解释：把政策/制度讲清楚，避免法言法语")
     action_items: list[str] = Field(description="需完成的事项：可执行的动作清单")
-    timeline: list[TimelineNode] = Field(
-        default_factory=list, description="时间节点：申报、补正、公示、生效等关键时点"
+    timeline: list[str] = Field(
+        default_factory=list,
+        description=(
+            "时间节点：每条写成 `节点 | 时间 | 说明` 的字符串，"
+            "例如 `申报期 | 2024-04-01 至 2024-04-30 | 逾期不再受理`。"
+            "时间不确定时写原文措辞。"
+        ),
     )
     required_materials: list[str] = Field(
         default_factory=list, description="材料要求：需要准备/提交的材料清单"

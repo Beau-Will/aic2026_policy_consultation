@@ -10,13 +10,27 @@ from .split import normalize_text, split_articles
 
 SUPPORTED_SUFFIXES = (".md", ".markdown", ".txt", ".html", ".htm", ".pdf", ".docx")
 
+# 常见但当前不支持：扫描目录时给出提示，避免"文件被静默忽略"
+UNSUPPORTED_DOC_SUFFIXES = (".doc", ".wps", ".rtf", ".odt", ".mht", ".mhtml")
+
 _RE_DOC_NUMBER = re.compile(
     r"[\u4e00-\u9fa5A-Za-z]{0,12}[〔\[（(](?:19|20)\d{2}[〕\]）)]\s*第?\s*\d+\s*号"
+)
+# 国务院令 / 部委令 形式的发文字号，例如“国务院令第775号”
+_RE_ORDER_NUMBER = re.compile(
+    r"((?:中华人民共和国)?国务院令\s*第\s*\d+\s*号|国令第\s*\d+\s*号|(?:[\u4e00-\u9fa5]{2,10}部令)\s*第\s*\d+\s*号)"
 )
 _RE_DATE = re.compile(r"((?:19|20)\d{2})\s*[年./-]\s*(\d{1,2})\s*[月./-]\s*(\d{1,2})\s*日?")
 _RE_ISSUER = re.compile(
     r"^[\u4e00-\u9fa5]{2,30}(?:部|委|局|厅|署|办|办公室|政府|人民法院|人民检察院)$"
 )
+
+# 施行/生效：只有原文明确写了“自XXXX年X月X日起施行/生效/实施”才采信
+_RE_EFFECTIVE_CLAUSE = re.compile(
+    r"自\s*((?:19|20)\d{2})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日起\s*(?:施行|生效|实施)"
+)
+# 发布/通过：优先取“通过/发布/公布/签发”附近的日期
+_RE_PUBLISH_KEYWORD = re.compile(r"(通过|发布|公布|签发|批准)")
 
 
 def iter_supported_files(root: Path) -> list[Path]:
@@ -126,6 +140,8 @@ def guess_metadata(text: str) -> dict[str, str | None]:
         "effective_date": None,
     }
     m = _RE_DOC_NUMBER.search(text)
+    if m is None:
+        m = _RE_ORDER_NUMBER.search(text)
     if m:
         result["doc_number"] = re.sub(r"\s+", "", m.group(0))
 
@@ -135,10 +151,25 @@ def guess_metadata(text: str) -> dict[str, str | None]:
             result["issuer"] = stripped
             break
 
-    dates = [_fmt_date(m) for m in _RE_DATE.finditer(text[:4000])]
-    if dates:
-        result["publish_date"] = dates[0]
-        result["effective_date"] = dates[-1] if len(dates) > 1 else None
+    # 发布日期：优先取“通过/发布/公布”关键词附近的日期；否则取文首（前200字）的第一个日期
+    head = text[:600]
+    keyword = _RE_PUBLISH_KEYWORD.search(head)
+    if keyword:
+        window = head[max(0, keyword.start() - 60) : keyword.end() + 60]
+        found = _RE_DATE.search(window)
+        if found:
+            result["publish_date"] = _fmt_date(found)
+    if result["publish_date"] is None:
+        head_date = _RE_DATE.search(text[:200])
+        if head_date:
+            result["publish_date"] = _fmt_date(head_date)
+
+    # 施行日期：只认明确的“自…起施行”条款；宁可为空，也不猜
+    effective = _RE_EFFECTIVE_CLAUSE.search(text)
+    if effective:
+        result["effective_date"] = (
+            f"{int(effective.group(1)):04d}-{int(effective.group(2)):02d}-{int(effective.group(3)):02d}"
+        )
     return result
 
 

@@ -15,7 +15,7 @@ from wit import capability
 
 from .corpus.store import get_store, normalize_for_match
 from .render import render_markdown
-from .schema import ArticleCitation, BriefDraft, EvidenceClaim, ExecutionBrief
+from .schema import ArticleCitation, BriefDraft, EvidenceClaim, ExecutionBrief, TimelineNode
 
 
 def _store():
@@ -38,6 +38,26 @@ def _citation_from_hit(hit: dict[str, Any], quote: str | None) -> ArticleCitatio
         source_hash=hit.get("source_hash"),
         quote=(quote.strip() if isinstance(quote, str) and quote.strip() else None),
     )
+
+
+def _parse_timeline_item(item: Any) -> TimelineNode:
+    """把模型给出的 `节点 | 时间 | 说明` 字符串解析为 TimelineNode。"""
+    if isinstance(item, TimelineNode):
+        return item
+    text = str(item or "").strip()
+    if not text:
+        return TimelineNode(label="")
+    if "|" in text:
+        parts = [part.strip() for part in text.split("|")]
+        label = parts[0] if parts else ""
+        date = parts[1] if len(parts) > 1 else ""
+        desc = parts[2] if len(parts) > 2 else ""
+        return TimelineNode(label=label or text, date=date, description=desc)
+    for sep in ("：", ":"):
+        if sep in text:
+            label, _, rest = text.partition(sep)
+            return TimelineNode(label=label.strip() or text, description=rest.strip())
+    return TimelineNode(label=text)
 
 
 def _coerce_draft(draft: BriefDraft | dict[str, Any]) -> BriefDraft:
@@ -101,7 +121,7 @@ def assemble_brief(
         applicable_subjects=draft.applicable_subjects,
         plain_explanation=draft.plain_explanation,
         action_items=draft.action_items,
-        timeline=draft.timeline,
+        timeline=[_parse_timeline_item(item) for item in draft.timeline],
         required_materials=draft.required_materials,
         risk_notes=draft.risk_notes,
         citations=citations,

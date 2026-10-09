@@ -76,7 +76,7 @@ class FakePolicyProvider:
                 "applicable_subjects": ["在本市依法登记注册、正常经营满6个月的小微企业"],
                 "plain_explanation": "符合条件的小微企业可以申请创业补贴。",
                 "action_items": ["准备营业执照复印件", "开具社保缴纳证明"],
-                "timeline": [{"label": "申报期", "date": "每年4月1日-4月30日", "description": ""}],
+                "timeline": ["申报期 | 每年4月1日-4月30日 | 逾期不再受理"],
                 "required_materials": ["营业执照复印件", "近6个月社保缴纳证明"],
                 "risk_notes": ["逾期不再受理"],
             }

@@ -71,3 +71,15 @@ def test_brief_assemble_schema_exposes_draft_and_evidence(tmp_path):
     props = schema["parameters"]["properties"]
     assert set(props) >= {"query", "draft", "evidence"}
     assert "applicable_subjects" in props["draft"]["properties"]
+
+
+def test_tool_schemas_have_no_ref_or_defs(tmp_path):
+    """回归防护：嵌套模型曾生成无效的 $ref，导致 DeepSeek/OpenAI 拒绝整个请求。"""
+    import json
+
+    agent = build_agent(provider=OfflineProvider("offline"))
+    compiled = agent.compile(workspace=tmp_path / "ws", acps=_acps())
+    for tool in compiled.tools:
+        blob = json.dumps(tool.model_schema(), ensure_ascii=False)
+        assert "$ref" not in blob, f"{tool.name} schema 含 $ref"
+        assert "$defs" not in blob, f"{tool.name} schema 含 $defs"

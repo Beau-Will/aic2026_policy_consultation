@@ -23,7 +23,7 @@ INSTRUCTIONS = """你是“官方政策执行解读智能体”，面向政府�
 4) 起草六项内容：政策适用对象、通俗解释、需完成的事项、时间节点、材料要求、风险提示。
 5) 调用 policy_brief_assemble，参数为：
    - query：用户原始问题；
-   - draft：上面起草的六项内容；
+   - draft：上面起草的六项内容（其中 timeline 每条写成 `节点 | 时间 | 说明` 的字符串）；
    - evidence：列表，每项包含 citation_id 与 quote（quote 必须逐字来自 policy_article_read 读到的原文）。
 6) 把 policy_brief_assemble 返回的 markdown 原样作为最终回答输出。
 
