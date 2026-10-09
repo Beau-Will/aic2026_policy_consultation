@@ -1,0 +1,30 @@
+# --- git/工具 ---
+.git
+.gitignore
+.github
+
+# --- Python 本地环境/缓存 ---
+.venv
+venv
+__pycache__
+*.py[cod]
+*.egg-info
+.pytest_cache
+.ruff_cache
+.mypy_cache
+
+# --- 运行态与敏感数据 ---
+data
+.wit
+certs
+*.db
+*.sqlite
+*.sqlite3
+.env
+.env.*
+
+# --- 文档/测试/临时 ---
+tests
+docs
+*.md.bak
+*.tmp

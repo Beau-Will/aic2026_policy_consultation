@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "policy-execution-agent"
+version = "0.1.0"
+description = "官方政策执行解读智能体：以本地权威语料库为唯一事实来源，产出可回溯条文依据的结构化执行说明（wit / ACPs Partner）"
+readme = "README.md"
+requires-python = ">=3.12,<3.15"
+license = { text = "Proprietary" }
+
+# 说明：acps-sdk 与 wit-framework 两个 wheel 是赛事/平台发行物，
+# 不在 PyPI（wit-framework 无 PyPI 包，acps-sdk 2.2.0 亦非公开版本），
+# 因此不写进 dependencies，改由 requirements.txt 按“先 sdk 后 wit”的顺序本地安装。
+dependencies = [
+    "jieba>=0.42.1",
+    "pypdf>=5.0.0",
+    "python-docx>=1.1.2",
+    "beautifulsoup4>=4.12.3",
+    "lxml>=5.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+]
+
+[project.scripts]
+policy-agent = "policy_agent.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "-q"

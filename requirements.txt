@@ -1,0 +1,5 @@
+# 安装顺序很重要：必须先装 acps-sdk，再装 wit-framework（wit 导入时会校验 SDK 版本）。
+# 两个 wheel 是平台发行物（不在 PyPI），已 vendor 到 vendor/wheels/。
+./vendor/wheels/acps_sdk-2.2.0-py3-none-any.whl
+./vendor/wheels/wit_framework-2.1.0-cp312.cp313.cp314-none-any.whl
+-e .

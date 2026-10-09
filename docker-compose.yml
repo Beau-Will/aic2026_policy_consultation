@@ -1,0 +1,22 @@
+services:
+  policy-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: policy-execution-agent:0.1.0
+    container_name: policy-agent
+    env_file:
+      - .env
+    environment:
+      POLICY_CORPUS_DB: /app/data/corpus.db
+      POLICY_DOCS_DIR: /app/data/docs
+      POLICY_WORKSPACE: /app/.wit
+      POLICY_BIND_HOST: 0.0.0.0
+      POLICY_BIND_PORT: "8443"
+    ports:
+      - "8443:8443"
+    volumes:
+      - ./data:/app/data
+      - ./.wit:/app/.wit
+      - ./certs:/app/certs:ro
+    restart: unless-stopped
