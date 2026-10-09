@@ -210,6 +210,17 @@ class CorpusStore:
             self._conn.commit()
         return len(doc.articles)
 
+    def reset(self) -> None:
+        """清空整个语料库（保留表结构），用于重新导入/重建索引。"""
+        with self._lock:
+            self._conn.executescript(
+                "DROP TABLE IF EXISTS articles_fts;"
+                "DROP TABLE IF EXISTS articles;"
+                "DROP TABLE IF EXISTS documents;"
+            )
+            self._conn.executescript(_SCHEMA)
+            self._conn.commit()
+
     def has_document(self, doc_id: str) -> bool:
         with self._lock:
             row = self._conn.execute(

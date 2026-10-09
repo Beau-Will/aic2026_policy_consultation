@@ -51,3 +51,22 @@ def test_split_empty_text():
 def test_normalize_text_collapses_blank_lines():
     raw = "第一行\r\n\r\n\r\n\r\n第二行"
     assert normalize_text(raw) == "第一行\n\n第二行"
+
+
+def test_join_soft_wrapped_cjk_lines():
+    """PDF 抽取常在词中换行，应重新接上。"""
+    raw = "国家支持企业和高等学校等教育培\n训机构开展培训，培养网络安\n全人才。"
+    assert normalize_text(raw) == "国家支持企业和高等学校等教育培训机构开展培训，培养网络安全人才。"
+
+
+def test_keep_article_boundary_newline():
+    raw = "第一条 内容甲。\n第二条 内容乙。"
+    out = normalize_text(raw)
+    assert out.count("\n") == 1, repr(out)
+    assert [a.article_no for a in split_articles(out)] == ["第一条", "第二条"]
+
+
+def test_keep_sentence_boundary_newline():
+    # 标点后换行属真实断句，不合并
+    out = normalize_text("……审议通过。\n根据2025年规定办理。")
+    assert "\n" in out

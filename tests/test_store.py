@@ -187,3 +187,18 @@ def test_iter_supported_files_skips_notes_and_unsupported(tmp_path):
 
     found = {p.name for p in iter_supported_files(tmp_path)}
     assert found == {"a.md", "b.pdf", "d.docx"}
+
+
+def test_store_reset_clears_everything(tmp_path):
+    store = CorpusStore(tmp_path / "db.sqlite")
+    path = tmp_path / "p.md"
+    path.write_text("第一条 内容。", encoding="utf-8")
+    store.add_document(build_document(path))
+    assert store.stats()["documents"] == 1
+
+    store.reset()
+    assert store.stats() == {"documents": 0, "articles": 0}
+    # reset 后仍可正常写入
+    store.add_document(build_document(path))
+    assert store.stats()["documents"] == 1
+    store.close()

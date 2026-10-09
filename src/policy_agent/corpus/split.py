@@ -19,16 +19,57 @@ _RE_ENUM = re.compile(rf"^([一二三四五六七八九十]+)[、.．][\s　]*(.
 _RE_INT_ENUM = re.compile(r"^(\d{1,3})[、.．][\s]*(.*)$")
 
 
+# 结构性行首：这些标记必须保持“另起一行”，不能被软换行合并掉
+_RE_STRUCT_START = re.compile(
+    rf"^(第{_NUM}[章节条]|[一二三四五六七八九十]+[、.．]|（[一二三四五六七八九十]+）|\d+[、.．])"
+)
+
+# 元数据行（发文字号 / 日期）：通常独立成行，不能被上一行吞掉
+_RE_META_LINE = re.compile(
+    r"^(?:[\u4e00-\u9fa5A-Za-z]{0,12}[〔\[（(](?:19|20)\d{2}[〕\]）)]\s*第?\s*\d+\s*号"
+    r"|(?:19|20)\d{2}\s*[年./-])"
+)
+
+# 只有足够长的行才可能来自 PDF 的软换行（标题行通常较短）
+_MIN_WRAP_LEN = 12
+
+
+def _is_cjk(ch: str) -> bool:
+    return "\u4e00" <= ch <= "\u9fff"
+
+
+def _join_soft_wrapped_lines(lines: list[str]) -> list[str]:
+    """合并 PDF 软换行：把“教育培 / 训机构”这种被换行切断的汉字重新接上。
+
+    仅在**前一行末字符与后一行首字符都是汉字**、且后一行不是结构标记行时合并，
+    因此不会破坏“第X条 / 一、”这类真正另起一行的结构。
+    """
+    out: list[str] = []
+    for line in lines:
+        stripped = line.lstrip()
+        if out and out[-1] and stripped:
+            prev = out[-1]
+            if (
+                _is_cjk(prev[-1])
+                and _is_cjk(stripped[0])
+                and len(prev) >= _MIN_WRAP_LEN
+                and not _RE_STRUCT_START.match(stripped)
+                and not _RE_META_LINE.match(stripped)
+            ):
+                out[-1] = prev + stripped
+                continue
+        out.append(line)
+    return out
+
+
 def normalize_text(text: str) -> str:
-    """统一换行与空白，保留段落结构。"""
+    """统一换行与空白，合并 PDF 软换行，保留段落结构。"""
     text = text.replace("\r\n", "\n").replace("\r", "\n")
     text = text.replace("\u3000", " ")
     text = re.sub(r"[ \t]+", " ", text)
     lines = [line.rstrip() for line in text.split("\n")]
-    out: list[str] = []
-    for line in lines:
-        out.append(line)
-    text = "\n".join(out)
+    lines = _join_soft_wrapped_lines(lines)
+    text = "\n".join(lines)
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()
 

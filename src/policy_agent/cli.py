@@ -36,6 +36,9 @@ def cmd_import(args: argparse.Namespace) -> int:
     from .corpus.store import get_store
 
     store = get_store()
+    if getattr(args, "reset", False):
+        store.reset()
+        print("[重建] 已清空语料库，将重新导入全部文件。")
     total_docs = 0
     total_articles = 0
     for raw in args.paths:
@@ -246,6 +249,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("import", help="导入权威原文（md/txt/html/pdf/docx，支持目录）")
     p.add_argument("paths", nargs="+")
     p.add_argument("--doc-id", help="显式指定 doc_id（单文件时生效；重复导入同名 doc_id 会覆盖）")
+    p.add_argument("--reset", action="store_true", help="先清空整个语料库再导入（重建索引）")
     p.add_argument("--title")
     p.add_argument("--issuer")
     p.add_argument("--doc-number")
