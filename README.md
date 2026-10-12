@@ -32,62 +32,146 @@
   - 无法核验的引用会被**剔除并记入 `warnings`**；若无任何有效引用，`grounded=false`。
 - 引用元数据（发文字号、日期、章节、条号、来源）全部由语料库补齐，模型无法自造。
 
-## 快速开始（本地）
+## 快速开始
+
+支持 **Linux / macOS / Windows**。Docker 方式三平台一致，推荐优先使用；若要在宿主机直接跑 Python，见方式 B。
+
+### 方式 A：Docker（推荐，Linux / macOS / Windows 通用）
+
+```bash
+# 1) 准备目录与配置
+mkdir -p data/docs
+cp .env.example .env      # Windows PowerShell: Copy-Item .env.example .env
+# 编辑 .env，填入 OPENAI_API_KEY（DeepSeek）
+
+# 2) 构建镜像
+docker compose build
+
+# 3) 导入语料（把法规原文放到宿主机 data/docs/，可分子目录）
+docker compose run --rm policy-agent import /app/docs
+
+# 4) 检索 + 生成执行说明
+docker compose run --rm policy-agent search "小微企业 创业补贴 申报时间"
+docker compose run --rm policy-agent brief "小微企业如何申报创业补贴？"
+
+# 5) 上线服务（ACPs 注册到位后，mTLS + AMP）
+docker compose up -d policy-agent
+docker compose logs -f policy-agent
+```
+
+> **Linux 不会遇到卷权限问题**：可写状态（语料索引 + 注册身份/证书）放在命名卷 `policy-state`，
+> 原文目录只读挂载，容器不会写你的宿主机文件，也**不需要 chown**。
+
+<details>
+<summary>想让 data/ 与 .wit/ 直接出现在宿主机目录？（Linux 需注意属主）</summary>
+
+把 `docker-compose.yml` 的 `volumes` 换成 bind mount：
+
+```yaml
+    volumes:
+      - ./data:/app/state
+      - ./data/docs:/app/docs:ro
+```
+
+**Linux 下必须先让宿主机目录对容器内 uid `10001` 可写**，否则会报数据库无法写入：
+
+```bash
+mkdir -p data/docs .wit
+sudo chown -R 10001:10001 data .wit
+```
+
+macOS / Windows(Docker Desktop) 的 bind mount 会自动做 uid 映射，通常无需处理。
+</details>
+
+### 方式 B：本机 venv
+
+**Linux / macOS**
+
+```bash
+bash scripts/setup.sh       # 建目录 + 生成 .env + 装依赖 + 发行预检，一步到位
+```
+
+或手动：
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+policy-agent preflight
+```
+
+日常使用：
+
+```bash
+source .venv/bin/activate
+policy-agent import ./data/docs
+policy-agent search "小微企业 创业补贴 申报时间 材料"
+policy-agent brief "小微企业如何申报创业补贴？" --out brief.md --json brief.json
+```
+
+**Windows（PowerShell）**
 
 ```powershell
-# 1) 安装（必须“先 SDK，后 wit”，requirements.txt 已固定顺序）
+powershell -ExecutionPolicy Bypass -File .\scripts\setup.ps1
+```
+
+或手动：
+
+```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
+```
 
-# 2) 版本预检（版本、导入来源、wheel 校验和）
-policy-agent preflight
+日常使用：
 
-# 3) 配置
-Copy-Item .env.example .env   # 填入 OPENAI_API_KEY（DeepSeek）
-
-# 4) 导入权威原文（支持 md/txt/html/pdf/docx，可传目录）
+```powershell
 policy-agent import .\data\docs
-
-# 5) 检索
 policy-agent search "小微企业 创业补贴 申报时间 材料"
-
-# 6) 生成执行说明（调用模型，输出 Markdown；--json 同时导出结构化结果）
 policy-agent brief "小微企业如何申报创业补贴？" --out brief.md --json brief.json
 ```
 
 > 说明：`wit-framework` **不在 PyPI**，两个 wheel 已随仓库放在 `vendor/wheels/`。
+> 安装顺序必须**先 `acps-sdk 2.2.0`、再 `wit-framework 2.1.0`**，`requirements.txt` 已固定该顺序。
 
 ## 语料放哪里、怎么组织
 
 ### 放这里
 
-**默认目录：`data/docs/`**（完整路径 `D:\apps\vscode_project\wt\data\docs\`）
+**默认目录：`data/docs/`**（相对仓库根目录）
+
+```bash
+# Linux / macOS
+mkdir -p data/docs
+cp /path/to/你的政策库/*.pdf data/docs/     # 示例；扫描是递归的，可分子目录
+policy-agent import ./data/docs             # 传目录 = 导入所有支持的文件
+```
 
 ```powershell
-# 建目录（已存在会自动忽略）
+# Windows PowerShell 等价写法
 New-Item -ItemType Directory -Force -Path .\data\docs | Out-Null
-
-# 把法律法规/政策原文拷进去（这里只是示例）
 Copy-Item "D:\我的政策库\*" -Destination .\data\docs\ -Recurse
-
-# 导入（传目录即递归扫描所有支持的文件）
 .\.venv\Scripts\policy-agent.exe import .\data\docs
 ```
 
+> 未激活虚拟环境时：Linux / macOS 用 `./.venv/bin/policy-agent`，Windows 用 `.\.venv\Scripts\policy-agent.exe`。
+
 `data/` 已在 `.gitignore` 中，**原文不会进 git 仓库**（体积大、且未必可公开分发），只保存在你本地。
+Docker 方式下该目录以**只读**方式挂进容器（`/app/docs`），容器不会改写你的文件。
 
 ### 支持的文件类型
 
 `.md` / `.markdown` / `.txt` / `.html` / `.htm` / `.pdf` / `.docx`
 
 > 扫描是**递归**的：子目录里的文件都会被导入，放心按层级建目录。
-> 以 _ 或 . 开头的文件会被跳过（方便在语料目录里放说明/索引文件，而不会被当成政策原文导入）。
+> 以 `_` 或 `.` 开头的文件会被跳过（方便在语料目录里放说明/索引文件）。
+> 不支持的格式（`.doc` / `.wps` / `.rtf` / `.odt` 等）会在导入时给出提示，请先另存为 `.docx` 或导出 PDF。
 
 ### 建议的目录结构
 
-不强制，但按"层级 / 年份 / 类型"分开，后续好维护、也好替换更新：
+不强制，但按“层级 / 年份 / 类型”分开，后续好维护、也好替换更新：
 
 ```text
 data/docs/
@@ -105,21 +189,33 @@ data/docs/
 
 导入时 `doc_id` 由**文件名 + 文件路径**生成，所以：
 
-- ✅ **同一路径重新导入会覆盖旧版本**——政策更新时，直接用新文件覆盖同名文件再导一次即可（命令行会显示 `[更新]`）。
+- ✅ **同一路径重新导入会覆盖旧版本**——政策更新时，用新文件覆盖同名文件再导一次即可（命令行显示 `[更新]`）。
 - ✅ **不同目录下的同名文件不会互相覆盖**（如 `2024/通知.pdf` 与 `2025/通知.pdf` 是两条）。
-- 💡 但仍建议用**能分辨内容**的文件名（如带上发文字号：`X人社发〔2024〕7号-创业补贴申报通知.pdf`），
-  这样检索结果和引用里的标题更容易看懂。
+- 💡 建议用**能分辨内容**的文件名（如带上发文字号：`X人社发〔2024〕7号-创业补贴申报通知.pdf`），检索结果与引用标题会更易读。
 - 💡 需要完全自定义编号时，单文件导入可加 `--doc-id`：
-  ```powershell
-  policy-agent import .\data\docs\某文件.pdf --doc-id 中小企业促进法-2024
-  ```
+
+```bash
+policy-agent import ./data/docs/某文件.pdf --doc-id 中小企业促进法-2024
+```
 
 ### 元数据（可选，但建议）
 
-发文字号、发文机关、发布日期一般会**自动猜测**。猜不准时可在导入时显式指定（单文件）：
+发文字号、发文机关、发布日期会**自动识别**（含“国务院令第N号”），施行日期只在原文写明“自…起施行”时才填。
+识别不准时可在导入时显式指定（单文件）：
+
+```bash
+# Linux / macOS
+policy-agent import ./data/docs/某通知.pdf \
+  --title "XX市创业补贴申报通知" \
+  --issuer "XX市人力资源和社会保障局" \
+  --doc-number "X人社发〔2024〕7号" \
+  --publish-date 2024-03-05 \
+  --source-url "https://example.gov.cn/xxx"
+```
 
 ```powershell
-policy-agent import .\data\docs\某通知.pdf `
+# Windows PowerShell（用反引号续行）
+.\.venv\Scripts\policy-agent.exe import .\data\docs\某通知.pdf `
   --title "XX市创业补贴申报通知" `
   --issuer "XX市人力资源和社会保障局" `
   --doc-number "X人社发〔2024〕7号" `
@@ -127,23 +223,23 @@ policy-agent import .\data\docs\某通知.pdf `
   --source-url "https://example.gov.cn/xxx"
 ```
 
-> 这些元数据会原样出现在最终报告"条文依据"里，是**可回溯**的关键，建议正式语料都补齐。
+> 这些元数据会原样出现在最终报告的「条文依据」里，是**可回溯**的关键，正式语料建议补齐。
 
 ### 导入后自检
 
-```powershell
-policy-agent stats                              # 文档数 / 条文数
-policy-agent search "创业补贴 申报 材料"          # 能否检索到目标条文
+```bash
+policy-agent stats                       # 文档数 / 条文数
+policy-agent search "创业补贴 申报 材料"   # 能否检索到目标条文
 ```
 
-检索不到就换关键词，或确认原文里确实有这些字——**检索不到就不会产出结论**（这是"不编造"的设计）。
+检索不到就换关键词，或确认原文里确实有这些字——**检索不到就不会产出结论**（这是“不编造”的设计）。
 
-### Docker 方式
+### Docker 方式下的语料
 
-`docker-compose.yml` 已把 `./data` 挂到容器 `/app/data`，所以文件同样放 `data/docs/` 即可：
+原文放到宿主机 `data/docs/` 即可，容器内路径是 `/app/docs`：
 
-```powershell
-docker compose run --rm policy-agent import /app/data/docs
+```bash
+docker compose run --rm policy-agent import /app/docs
 docker compose run --rm policy-agent search "创业补贴 申报"
 ```
 
@@ -177,12 +273,30 @@ docker compose run --rm policy-agent search "创业补贴 申报"
 
 ### 执行
 
-```powershell
-$env:POLICY_PUBLIC_ENDPOINT = "https://agent.example.com/acps/aip/v1"   # 平台可达的 HTTPS
-$env:POLICY_CERT_DNS        = ""                                        # 一般留空
-$env:ACPS_USERNAME          = "<平台账号>"
-$env:ACPS_PASSWORD          = "<平台密码>"
+在 `.env` 里填好下列值（三平台一致）：
 
+```ini
+POLICY_PUBLIC_ENDPOINT=https://agent.example.com/acps/aip/v1
+POLICY_CERT_DNS=
+ACPS_USERNAME=<平台账号>
+ACPS_PASSWORD=<平台密码>
+```
+
+也可以临时用环境变量覆盖：
+
+```bash
+# Linux / macOS
+export POLICY_PUBLIC_ENDPOINT="https://agent.example.com/acps/aip/v1"
+```
+
+```powershell
+# Windows PowerShell
+$env:POLICY_PUBLIC_ENDPOINT = "https://agent.example.com/acps/aip/v1"
+```
+
+然后依次执行：
+
+```bash
 policy-agent validate   # 本地校验编译与能力投影（不需要 endpoint）
 policy-agent acs        # 查看/导出 ACS 草稿
 policy-agent register   # 推进注册；首次通常停在 waiting_for_review
@@ -192,27 +306,37 @@ policy-agent serve      # 审核通过后启动 Direct Partner listener（mTLS +
 接入流程（由 wit 托管）：登录 → 提交 ACS → 平台审核 → 取得 **AIC** → 签发 **mTLS 证书** → 启动 listener。
 首次 `register` 返回 `waiting_for_review` 属正常，等平台管理员审核通过后重跑即可。
 
-## Docker
+## Docker 卷、网络与 Linux 说明
 
-```powershell
-Copy-Item .env.example .env   # 填好 OPENAI_API_KEY / ACPS_* / POLICY_PUBLIC_ENDPOINT
-docker compose build
+| 项 | 设计 | 原因 |
+| --- | --- | --- |
+| 语料原文 | `./data/docs` **只读**挂载到 `/app/docs` | 容器不写宿主机文件，Linux 无需 chown |
+| 运行态（索引 + 身份/证书） | 命名卷 `policy-state` 挂到 `/app/state` | 卷由镜像创建时继承 uid 10001，Linux 下可写 |
+| 容器内 uid | `10001`（非 root） | 最小权限 |
+| `host.docker.internal` | 通过 `extra_hosts: host-gateway` 注入 | Linux 上默认不解析该名称 |
 
-# 本地导入语料
-docker compose run --rm policy-agent import /app/data/docs
-# 检索
-docker compose run --rm policy-agent search "创业补贴 申报"
-# 生成执行说明
-docker compose run --rm policy-agent brief "小微企业如何申报创业补贴？"
-# 上线服务
-docker compose up -d policy-agent
+容器需要**出网**访问：DeepSeek（`api.deepseek.com`）与梧桐平台（`wt.ioa.pub`，含 AMP 上报端口）。
+
+常用运维命令：
+
+```bash
+docker compose build                 # 重建镜像
+docker compose run --rm policy-agent <子命令>   # 一次性执行 CLI
+docker compose up -d policy-agent    # 后台启动服务
+docker compose logs -f policy-agent  # 跟踪日志
+docker compose down                  # 停止
+
+# 查看/重置运行态卷（重置会清空语料索引与注册身份）
+docker volume inspect wt_policy-state
+docker compose down -v && docker compose up -d
 ```
 
-挂载说明：`./data`（语料库）、`./.wit`（注册身份/证书/状态）、`./certs`（只读）。证书与 `.wit/` **不要提交到 git**。
+> 若要把运行态也放到宿主机可见目录，见「快速开始 · 方式 A」里的 bind mount 说明（Linux 需 `chown 10001`）。
+> 证书与 `.wit/` **不要提交到 git**。
 
 ## 测试
 
-```powershell
+```bash
 python -m pip install -e ".[dev]"
 python -m pytest -q
 ```

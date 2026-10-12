@@ -2,6 +2,7 @@
 
 > 面向参加 2026AIC 算法大赛、走 **WIT/凤翎路径** 的开发者。
 > 本项目的注册、证书与 listener 全部由 `wit` 托管，本手册只讲“怎么做”。
+> 命令以 **Linux / macOS** 为主，关键处给出 Windows PowerShell 等价写法；Docker 方式三平台一致。
 
 ## 0. 先厘清概念
 
@@ -13,25 +14,50 @@
 
 ## 1. 准备环境
 
-```powershell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
+**Linux / macOS**
+
+```bash
+bash scripts/setup.sh          # 建目录 + 生成 .env + 装依赖 + 发行预检，一步到位
+source .venv/bin/activate
+```
+
+或手动：
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt   # 先 acps-sdk 2.2.0，再 wit-framework 2.1.0
-policy-agent preflight                        # 版本 / 导入来源 / wheel 校验和
+policy-agent preflight                       # 版本 / 导入来源 / wheel 校验和
+```
+
+**Windows (PowerShell)**
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\setup.ps1
+.\.venv\Scripts\Activate.ps1
+.\.venv\Scripts\policy-agent.exe preflight
 ```
 
 ## 2. 准备语料（决定结论是否有依据）
 
-```powershell
-policy-agent import .\data\docs              # md/txt/html/pdf/docx，可传目录
+```bash
+policy-agent import ./data/docs      # md/txt/html/pdf/docx，可传目录（递归扫描）
 policy-agent stats
-policy-agent search "关键词 关键词"            # 确认能检索到目标条文
+policy-agent search "关键词 关键词"    # 确认能检索到目标条文
+```
+
+```powershell
+.\.venv\Scripts\policy-agent.exe import .\data\docs
 ```
 
 ## 3. 配置 `.env`（本节是重点）
 
-复制模板：`Copy-Item .env.example .env`，然后填这几项：
+```bash
+cp .env.example .env      # Windows PowerShell: Copy-Item .env.example .env
+```
+
+然后填这几项：
 
 | 变量 | 是否必填 | 说明 |
 | --- | --- | --- |
@@ -125,22 +151,30 @@ POLICY_CERT_DNS=                      # 留空即可
 
 ### 3.5 怎么自测“平台能不能访问到我”
 
-1. 先启动：`policy-agent serve`（保持窗口开着）。
-2. 从**另一台不在你局域网的机器**（手机热点、朋友电脑）执行：
+1. 先启动：`policy-agent serve`（保持前台运行）。
+2. 从**另一台不在你局域网的机器**（手机热点、朋友电脑、云主机）执行：
+
+```bash
+# 测 TCP 连通性
+nc -vz <你的主机名> <端口>        # 或: timeout 5 bash -c "</dev/tcp/<主机名>/<端口>" && echo open
+
+# 触发一次 TLS 握手
+curl -vk https://<你的主机名>:<端口>/
+```
 
 ```powershell
+# Windows 等价写法
 Test-NetConnection <你的主机名> -Port <端口>
-# 或
 curl.exe -vk https://<你的主机名>:<端口>/
 ```
 
-- 能连上 TCP（`TcpTestSucceeded: True`）说明网络通。
+- 能连上 TCP 说明网络通。
 - `curl` 报证书/TLS 相关错误 **是正常的**——因为你没有平台的客户端证书，
   双向认证被拒绝恰恰说明“TLS 端口通了、双向认证生效了”。
 
 ## 4. 本地校验并生成 ACS
 
-```powershell
+```bash
 policy-agent validate         # 编译无诊断、四个技能已投影、协议绑定正确
 policy-agent acs              # 打印 ACS 草稿（可 --out 保存）
 ```
@@ -148,9 +182,11 @@ policy-agent acs              # 打印 ACS 草稿（可 --out 保存）
 `ACS` 是智能体对外的“能力名片”，由 `WitAgent` 的能力声明与协议绑定自动生成；
 工作区里的 token、私钥、状态文件**不会**进入 ACS。
 
+`validate` 会同时打印 `public_endpoint` 与 `certificate_san`，便于自查证书会签成什么名字。
+
 ## 5. 推进注册（可能停在“待审核”）
 
-```powershell
+```bash
 policy-agent register
 ```
 
@@ -161,7 +197,7 @@ policy-agent register
 
 ## 6. 启动并上线
 
-```powershell
+```bash
 policy-agent serve            # 启动 AIP Direct listener（mTLS + AMP）
 ```
 
@@ -169,18 +205,25 @@ policy-agent serve            # 启动 AIP Direct listener（mTLS + AMP）
 - AMP 已开启（heartbeat / system / metrics），供平台监控与排名统计。
 - 上线后用平台侧（Discovery / 叮当）确认可被发现并调用。
 
-## 7. Docker 方式
+生产环境建议用 Docker 常驻（`docker compose up -d policy-agent`），
+注意 `POLICY_PUBLIC_ENDPOINT` 要指向容器对外可达的地址。
 
-```powershell
-Copy-Item .env.example .env      # 填好密钥与接入参数
+## 7. Docker 方式（Linux / macOS / Windows 通用）
+
+```bash
+mkdir -p data/docs                # 放原文
+cp .env.example .env              # 填好密钥与接入参数
 docker compose build
-docker compose run --rm policy-agent import /app/data/docs
+docker compose run --rm policy-agent import /app/docs
 docker compose run --rm policy-agent search "关键词"
 docker compose up -d policy-agent
+docker compose logs -f policy-agent
 ```
 
-容器需能**出网**访问 DeepSeek 与 `wt.ioa.pub`（含 AMP 上报端口）。
-证书与 `.wit/` 通过 volume 持久化，**不要提交到 git**。
+- 可写状态在命名卷 `policy-state`，**Linux 下无需 chown 宿主机目录**。
+- 原文目录以只读方式挂在 `/app/docs`。
+- 容器需能**出网**访问 DeepSeek 与 `wt.ioa.pub`（含 AMP 上报端口）。
+- 证书与 `.wit/` **不要提交到 git**。
 
 ## 8. 常见问题
 
@@ -189,8 +232,9 @@ docker compose up -d policy-agent
 | 提示“缺少 POLICY_PUBLIC_ENDPOINT” | `.env` 里还没填对外地址，见 §3.3 |
 | 提示“必须以 https:// 开头” | 写成了 `http://`，严格模式不接受 |
 | 提示“解析不出主机名” | 写成了 `https:///acps/aip/v1`，缺主机名 |
-| `缺少 OPENAI_API_KEY` | `brief`/`serve` 需要真实 DeepSeek Key |
+| `缺少 OPENAI_API_KEY` | `brief`/`serve` 需要真实 DeepSeek Key；确认 `.env` 已被读取 |
 | `waiting_for_review` | 等平台管理员审核，通过后重跑 `register` |
 | 证书 SAN 校验失败 | `POLICY_CERT_DNS` 与 public endpoint 主机名不一致 |
 | 平台调用超时 | 地址不可达：DNS/端口/防火墙/隧道未打通（或用了终止 TLS 的 HTTP 反代） |
 | 检索不到目标条文 | 语料未导入或关键词不匹配；换关键词或补录原文 |
+| `scripts/setup.sh: /usr/bin/env: bad interpreter` | 脚本被 CRLF 污染；确认 `.gitattributes` 生效后重新 checkout |

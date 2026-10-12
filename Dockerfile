@@ -1,5 +1,7 @@
 # 官方政策执行解读智能体（wit / ACPs Partner）
-# 与宿主 Python 版本解耦：容器内固定 CPython 3.13，契合 wit 的 cp312/313/314 发行 wheel。
+#
+# 纯 Linux 基础镜像，Linux / macOS / Windows(Docker Desktop) 通用。
+# 容器内固定 CPython 3.13，与 wit 的 cp312/313/314 发行 wheel 精确匹配。
 FROM python:3.13-slim
 
 ENV PYTHONUNBUFFERED=1 \
@@ -7,7 +9,12 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
-# 非 root 运行
+# 出网 HTTPS（DeepSeek / wt.ioa.pub）所需的根证书
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+
+# 非 root 运行（uid/gid 10001）
 RUN groupadd --gid 10001 app \
  && useradd --uid 10001 --gid app --create-home app
 
@@ -25,15 +32,17 @@ RUN python -m pip install --upgrade pip \
       /app/vendor/wheels/wit_framework-2.1.0-cp312.cp313.cp314-none-any.whl \
  && python -m pip install -e /app
 
-# 3) 运行态目录（通过 volume 挂载）
-RUN mkdir -p /app/data /app/.wit /app/certs \
+# 3) 运行态目录
+#    /app/state -> 语料索引与注册身份/证书（建议用命名卷，避免 Linux 宿主目录权限问题）
+#    /app/docs  -> 权威原文（建议只读挂载宿主机目录）
+RUN mkdir -p /app/state /app/docs \
  && chown -R app:app /app
 
 USER app
 
-ENV POLICY_CORPUS_DB=/app/data/corpus.db \
-    POLICY_DOCS_DIR=/app/data/docs \
-    POLICY_WORKSPACE=/app/.wit
+ENV POLICY_CORPUS_DB=/app/state/corpus.db \
+    POLICY_DOCS_DIR=/app/docs \
+    POLICY_WORKSPACE=/app/state/.wit
 
 EXPOSE 8443
 

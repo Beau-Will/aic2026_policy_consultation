@@ -1,3 +1,16 @@
+# 官方政策执行解读智能体 —— Docker Compose
+#
+# 用法（Linux / macOS / Windows 通用）：
+#   mkdir -p data/docs && cp .env.example .env   # 填好 .env
+#   docker compose build
+#   docker compose run --rm policy-agent import /app/docs
+#   docker compose run --rm policy-agent search "关键词"
+#   docker compose up -d policy-agent
+#
+# 设计说明：
+#   - 只读挂载宿主机 ./data/docs 作为原文输入，容器不需要写宿主机 ✅
+#   - 可写状态（语料索引 + 注册身份/证书）放在命名卷里，
+#     避免 Linux 下 bind mount 目录属主与容器内 uid(10001) 不一致导致无法写入。
 services:
   policy-agent:
     build:
@@ -8,15 +21,22 @@ services:
     env_file:
       - .env
     environment:
-      POLICY_CORPUS_DB: /app/data/corpus.db
-      POLICY_DOCS_DIR: /app/data/docs
-      POLICY_WORKSPACE: /app/.wit
+      POLICY_CORPUS_DB: /app/state/corpus.db
+      POLICY_DOCS_DIR: /app/docs
+      POLICY_WORKSPACE: /app/state/.wit
       POLICY_BIND_HOST: 0.0.0.0
       POLICY_BIND_PORT: "8443"
     ports:
       - "8443:8443"
     volumes:
-      - ./data:/app/data
-      - ./.wit:/app/.wit
-      - ./certs:/app/certs:ro
+      # 权威原文：只读
+      - ./data/docs:/app/docs:ro
+      # 运行态：命名卷（Linux 下无需 chown）
+      - policy-state:/app/state
+    extra_hosts:
+      # Linux 上需要在容器内访问宿主机服务时使用；macOS/Windows 自带该名称
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
+
+volumes:
+  policy-state:
