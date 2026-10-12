@@ -63,6 +63,7 @@ cp .env.example .env      # Windows PowerShell: Copy-Item .env.example .env
 | --- | --- | --- |
 | `OPENAI_API_KEY` | 必填 | DeepSeek API Key（`brief` / `serve` 会真正调用模型） |
 | `ACPS_USERNAME` / `ACPS_PASSWORD` | 必填 | 梧桐平台账号 |
+| `ACPS_PROFILE` | 必填 | `wt` = **2026AIC 大赛平台**（`wt.ioa.pub`，默认）；`ioa` = wit 内置的 `www.ioa.pub`（**账号不通用**，填错报 `401 USER_NOT_FOUND`） |
 | `POLICY_PUBLIC_ENDPOINT` | 必填 | **平台用来找到并调用你的地址**（见下） |
 | `POLICY_CERT_DNS` | 一般留空 | 通常会自动推导；只有特殊需要用别的名字时才填 |
 | `POLICY_BIND_HOST` / `POLICY_BIND_PORT` | 不用改 | 你**本机**监听的地址/端口（`0.0.0.0` / `8443`） |
@@ -148,6 +149,28 @@ POLICY_CERT_DNS=                      # 留空即可
 
 只有这些情况才手动填：**你想用与 endpoint 不同的主机名接入**（多个用英文逗号分隔）。
 填的是**纯主机名**，不要带 `https://`、不要带端口和路径。
+
+### 3.4b 确认平台 profile 别填错（很容易踩的坑）
+
+框架内置了**两个不同的部署**，账号**不通用**：
+
+| profile | 平台 | 注册服务地址 |
+| --- | --- | --- |
+| `wt`（默认，参赛用这个） | 2026AIC 大赛平台 | `https://wt.ioa.pub/registry-server` |
+| `ioa` | wit 内置 ioa.pub | `https://www.ioa.pub/registry` |
+
+填错的表现是登录报 `401 USER_NOT_FOUND`——这不是密码错，而是「账号在这个平台上不存在」。
+自查命令（会打印实际使用的地址）：
+
+```bash
+policy-agent validate      # 看输出里的 platform.registry_url
+```
+
+需要指向其它环境时，用环境变量覆盖：
+
+```bash
+ACPS_REGISTRY_URL=https://... ACPS_CA_URL=https://... ACPS_DISCOVERY_URL=https://... policy-agent register
+```
 
 ### 3.5 怎么自测“平台能不能访问到我”
 

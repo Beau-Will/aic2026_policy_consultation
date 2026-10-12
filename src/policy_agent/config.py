@@ -104,7 +104,7 @@ class Settings:
     openai_api_key: str | None = None
     openai_base_url: str = DEFAULT_BASE_URL
 
-    acps_profile: str = "ioa"
+    acps_profile: str = "wt"
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -127,7 +127,7 @@ class Settings:
             model_name=_env("OPENAI_MODEL", DEFAULT_MODEL) or DEFAULT_MODEL,
             openai_api_key=_env("OPENAI_API_KEY"),
             openai_base_url=_env("OPENAI_BASE_URL", DEFAULT_BASE_URL) or DEFAULT_BASE_URL,
-            acps_profile=_env("ACPS_PROFILE", "ioa") or "ioa",
+            acps_profile=_env("ACPS_PROFILE", "wt") or "wt",
         )
 
     def agent_workspace(self) -> Path:

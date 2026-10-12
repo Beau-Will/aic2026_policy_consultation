@@ -276,6 +276,7 @@ docker compose run --rm policy-agent search "创业补贴 申报"
 在 `.env` 里填好下列值（三平台一致）：
 
 ```ini
+ACPS_PROFILE=wt                                     # 2026AIC 大赛平台（默认）
 POLICY_PUBLIC_ENDPOINT=https://agent.example.com/acps/aip/v1
 POLICY_CERT_DNS=
 ACPS_USERNAME=<平台账号>

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import ipaddress
+import os
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -99,6 +100,40 @@ def require_public_endpoint(settings: Settings) -> None:
         raise RuntimeError("POLICY_PUBLIC_ENDPOINT 解析不出主机名。\n" + PUBLIC_ENDPOINT_HELP)
 
 
+# 2026AIC 大赛平台（梧桐 wt.ioa.pub）的固定基础设施地址。
+# 注意：wit 内置的 AcpsConfig.ioa_pub() 指向的是 www.ioa.pub（另一个部署），
+# 大赛账号并不在那里，因此本项目的默认 profile 为 "wt"。
+WT_PLATFORM = {
+    "registry_url": "https://wt.ioa.pub/registry-server",
+    "ca_url": "https://wt.ioa.pub/ca-server",
+    "discovery_url": "https://wt.ioa.pub/discovery/acps-adp-v2/discover",
+}
+
+# 允许用环境变量覆盖（换环境时无需改代码）
+_ENV_REGISTRY = "ACPS_REGISTRY_URL"
+_ENV_REGISTRY_MTLS = "ACPS_REGISTRY_MTLS_URL"
+_ENV_CA = "ACPS_CA_URL"
+_ENV_DISCOVERY = "ACPS_DISCOVERY_URL"
+
+
+def _wt_acps_config(
+    settings: Settings,
+    provider: AgentProviderProfile,
+    certificate: AgentCertificateRequest,
+) -> AcpsConfig:
+    """大赛平台（wt.ioa.pub）配置，地址可用 ACPS_* 环境变量覆盖。"""
+    return AcpsConfig.custom(
+        registry_url=os.environ.get(_ENV_REGISTRY) or WT_PLATFORM["registry_url"],
+        registry_mtls_url=os.environ.get(_ENV_REGISTRY_MTLS) or None,
+        ca_url=os.environ.get(_ENV_CA) or WT_PLATFORM["ca_url"],
+        discovery_url=os.environ.get(_ENV_DISCOVERY) or WT_PLATFORM["discovery_url"],
+        public_endpoint=settings.public_endpoint,
+        provider=provider,
+        certificate=certificate,
+        registration=AcpsRegistration.integrated(),
+    )
+
+
 def build_acps_config(settings: Settings) -> AcpsConfig:
     """按 profile 构造 ACPs 配置；默认走 ioa.pub 固定基础设施。"""
     provider = AgentProviderProfile(
@@ -111,14 +146,22 @@ def build_acps_config(settings: Settings) -> AcpsConfig:
         ip=ips,
         requested_validity=settings.cert_validity_days,
     )
-    if settings.acps_profile.lower() in ("ioa", "ioa_pub", "ioapub"):
+    profile = settings.acps_profile.lower()
+
+    # 默认：2026AIC 大赛平台（wt.ioa.pub）
+    if profile in ("wt", "competition", "aic", "wt.ioa.pub"):
+        return _wt_acps_config(settings, provider, certificate)
+
+    # wit 内置 ioa.pub（www.ioa.pub）——注意与大赛平台不是同一个部署
+    if profile in ("ioa", "ioa_pub", "ioapub"):
         return AcpsConfig.ioa_pub(
             provider=provider,
             certificate=certificate,
             public_endpoint=settings.public_endpoint,
             registration=AcpsRegistration.integrated(),
         )
-    # 非 ioa 环境：由 ACPS_* 环境变量提供基础设施地址。
+
+    # 其它环境：完全由 ACPS_* 环境变量提供
     return AcpsConfig.from_env(
         provider=provider,
         certificate=certificate,
@@ -164,6 +207,15 @@ def validate_agent(settings: Settings | None = None) -> dict[str, Any]:
     dns, ips = _cert_hosts(settings)
     return {
         "agent_id": compiled.agent_id,
+        "acps_profile": settings.acps_profile,
+        "platform": {
+            "registry_url": acps.registry_url,
+            "registry_api_url": acps.registry_api_url,
+            "registry_atr_url": acps.registry_atr_url,
+            "ca_url": acps.ca_url,
+            "ca_atr_url": acps.ca_atr_url,
+            "discovery_url": acps.discovery_url,
+        },
         "valid": not compiled.diagnostics,
         "diagnostics": [d.to_dict() for d in compiled.diagnostics],
         "skills": [p.capability_id for p in compiled.capability_matrix.projections],
