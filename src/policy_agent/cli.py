@@ -169,7 +169,8 @@ def cmd_acs(args: argparse.Namespace) -> int:
     from .serving import save_acs_draft
 
     path = save_acs_draft(path=args.out)
-    print(f"ACS 草稿已写入：{path}")
+    # 提示走 stderr，保证 stdout 是纯净的 ACS JSON（可直接 > acs.json 保存）
+    print(f"ACS 草稿已写入：{path}", file=sys.stderr)
     print(Path(path).read_text(encoding="utf-8"))
     return 0
 
