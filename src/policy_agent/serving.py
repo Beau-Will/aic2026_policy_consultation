@@ -273,7 +273,9 @@ async def serve(settings: Settings | None = None, *, block: bool = True) -> dict
             host=settings.bind_host,
             port=settings.bind_port,
             amp=True,
-            amp_periodic_logs=("heartbeat", "system", "metrics"),
+            # 周期日志只报 heartbeat/system：
+            # metrics 需要应用提供 AmpMetricsHooks 采集器，本项目暂未实现。
+            amp_periodic_logs=("heartbeat", "system"),
         )
         base["serving"] = status.to_dict()
         if not block:

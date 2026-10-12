@@ -83,3 +83,10 @@ def test_tool_schemas_have_no_ref_or_defs(tmp_path):
         blob = json.dumps(tool.model_schema(), ensure_ascii=False)
         assert "$ref" not in blob, f"{tool.name} schema 含 $ref"
         assert "$defs" not in blob, f"{tool.name} schema 含 $defs"
+
+
+def test_agent_registers_amp_access_hooks(tmp_path):
+    """AMP Access 日志是平台统计调用次数/排名的基础，必须注册。"""
+    agent = build_agent(provider=OfflineProvider("offline"))
+    compiled = agent.compile(workspace=tmp_path / "ws", acps=_acps())
+    assert [h.id for h in compiled.amp_hooks] == ["acps.amp.access"]

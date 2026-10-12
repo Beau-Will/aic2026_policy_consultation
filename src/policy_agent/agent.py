@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from wit import AcpsDirect, WitAgent
+from wit import AcpsDirect, AmpAccessLoggingHooks, WitAgent
 
 from .capabilities import PUBLIC_CAPABILITIES
 from .config import Settings
@@ -57,6 +57,9 @@ def build_agent(
         instructions=INSTRUCTIONS,
         model=model,
         capabilities=list(PUBLIC_CAPABILITIES),
+        # AMP Access 日志：ACPs Direct 传输边界的调用/被调用记录，
+        # 平台按 access 日志（correlationId = taskId）统计调用次数与排名。
+        amp_hooks=[AmpAccessLoggingHooks()],
         protocols=[AcpsDirect(modes=("rpc", "stream"))] if include_acps else [],
         metadata={
             "domain": "政策法规执行解读",
